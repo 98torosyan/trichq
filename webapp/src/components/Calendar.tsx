@@ -76,7 +76,8 @@ export function Calendar({ origin, dep, ret, picking, onPick }: Props) {
         ))}
         {Array.from({ length: daysInMonth }, (_, i) => {
           const day = addDays(month, i);
-          const past = day < today;
+          const tooFar = day > addDays(today, 330) || (picking === "ret" && day > dep && nightsBetween(dep, day) > 30);
+          const past = day < today || tooFar;
           const price = prices[day];
           const cls = ["day"];
           if (price !== undefined) cls.push(`lv${levels(price)}`);

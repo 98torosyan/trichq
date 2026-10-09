@@ -4,7 +4,8 @@ name: Deploy
 #   TELEGRAM_BOT_TOKEN, BOT_WEBHOOK_SECRET, ALLOWED_USER_IDS, ADMIN_CHAT_ID,
 #   TRAVELPAYOUTS_TOKEN, TRAVELPAYOUTS_MARKER (optional),
 #   TURSO_URL, TURSO_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
-#   ORACLE_HOST, ORACLE_SSH_KEY, and optionally WEBAPP_URL (defaults to the workers.dev address).
+#   ORACLE_HOST, ORACLE_SSH_KEY, optionally ORACLE_HOST_KEY (pinned SSH host key line).
+# Optional repository *variable* (not secret) WEBAPP_URL for a custom domain; default is the workers.dev URL.
 
 on:
   push:
@@ -50,13 +51,25 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
         run: |
+          set -euo pipefail
           npm ci
           npx wrangler deploy | tee deploy.log
-          echo "url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1 || true)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Resolve public URL
         id: url
-        run: echo "url=${{ secrets.WEBAPP_URL != '' && secrets.WEBAPP_URL || steps.deploy.outputs.url }}" >> "$GITHUB_OUTPUT"
+        env:
+          CUSTOM: ${{ vars.WEBAPP_URL }}
+          DEPLOYED: ${{ steps.deploy.outputs.url }}
+        run: |
+          url="${CUSTOM:-$DEPLOYED}"
+          if [ -z "$url" ]; then
+            echo "::error::No public URL. Open Workers & Pages in Cloudflare once to create your workers.dev subdomain, or set the WEBAPP_URL variable."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Upload Worker secrets
         working-directory: worker
         env:
@@ -94,11 +107,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: SSH key
+        env:
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          HOST: ${{ secrets.ORACLE_HOST }}
+          HOST_KEY: ${{ secrets.ORACLE_HOST_KEY }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/oracle
+          printf '%s\n' "$KEY" > ~/.ssh/oracle
           chmod 600 ~/.ssh/oracle
-          ssh-keyscan -T 15 -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
+          if [ -n "$HOST_KEY" ]; then
+            printf '%s %s\n' "$HOST" "$HOST_KEY" >> ~/.ssh/known_hosts   # pinned: safest
+          else
+            ssh-keyscan -T 15 -H "$HOST" >> ~/.ssh/known_hosts              # trust on first use
+          fi
       - name: Copy code
         env: { HOST: "${{ secrets.ORACLE_HOST }}" }
         run: |

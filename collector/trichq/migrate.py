@@ -37,7 +37,10 @@ async def run(db: Database, directory: Path | None = None) -> list[str]:
             continue
         statements = [(s, ()) for s in split_sql(path.read_text(encoding="utf-8"))]
         statements.append(
-            ("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", (version, repo.iso(repo.utcnow())))
+            (
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (version, repo.iso(repo.utcnow())),
+            )
         )
         await db.batch(statements)
         applied.append(version)

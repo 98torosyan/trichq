@@ -69,6 +69,7 @@ class TravelpayoutsClient:
             headers={"X-Access-Token": token, "Accept-Encoding": "gzip, deflate"},
         )
         self.requests_made = 0
+        self.last_page_size = 0  # raw rows in the last response, before invalid ones are dropped
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -127,6 +128,7 @@ class TravelpayoutsClient:
             },
         )
         items = body.get("data") or []
+        self.last_page_size = len(items)
         fares = [fare_from_tp(it, market=market, marker=self._marker) for it in items]
         return [f for f in fares if f is not None]
 

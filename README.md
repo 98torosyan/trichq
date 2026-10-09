@@ -46,6 +46,9 @@ GitHub → Settings → Secrets and variables → Actions → add:
 | `TURSO_URL`, `TURSO_TOKEN` | [app.turso.tech](https://app.turso.tech/) → database → URL / Create token |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | [API tokens](https://dash.cloudflare.com/profile/api-tokens) → "Edit Cloudflare Workers" template |
 | `ORACLE_HOST`, `ORACLE_SSH_KEY` | VM public IP and the private key file saved when creating it |
+| `ORACLE_HOST_KEY` | optional: the VM's SSH host key (`ssh-ed25519 AAAA…`) to pin it |
+
+Also add a repository **variable** `WEBAPP_URL` = your Worker address (e.g. `https://trichq.<name>.workers.dev`) after the first deploy; the backup collector uses it for alert buttons.
 
 Before the first deploy, open **Workers & Pages** in the Cloudflare dashboard once so your free `*.workers.dev` subdomain exists. Then push to `main` (or run **Deploy** manually): migrations run, the mini app and Worker deploy, the bot gets its webhook and menu button, and the collector starts on the VM.
 

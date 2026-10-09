@@ -25,7 +25,7 @@ REALERT_CHEAPER_BY = 0.03  # alert again only if the price fell at least 3% belo
 REALERT_COOLDOWN_H = 6  # ...and not more than once every 6 hours unless it fell 10%+
 BIG_DROP = 0.10
 FRESH_DB_HOURS = 12  # fares in our DB this recent count as live
-MONTHS_HY = ["հուն", "փետ", "մար", "ապր", "մայ", "հուն", "հուլ", "օգս", "սեպ", "հոկ", "նոյ", "դեկ"]
+MONTHS_HY = ["հունվ", "փետ", "մարտ", "ապր", "մայ", "հունիս", "հուլ", "օգոս", "սեպտ", "հոկտ", "նոյ", "դեկ"]
 
 
 @dataclass(slots=True, frozen=True)

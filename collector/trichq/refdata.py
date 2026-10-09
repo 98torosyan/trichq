@@ -102,8 +102,29 @@ async def fetch_visa_for(client: httpx.AsyncClient, passport: str = "AM") -> dic
     return out
 
 
+MIN_HY_CITIES = 20  # fewer real Armenian names than this means the hy locale is missing upstream
+MIN_VISA_ROWS = 100  # the passport dataset covers ~199 countries
+
+
+class ReferenceError(RuntimeError):
+    pass
+
+
 async def build_webapp_reference(out_dir: Path) -> dict[str, int]:
-    """Write ``places.json`` for the mini app: compact arrays to keep the download small."""
+    """Write ``places.json`` for the mini app: compact arrays to keep the download small.
+
+    The committed file holds hand-checked Armenian names and visa rules. Downloaded data is merged
+    over it, never allowed to make it worse: curated names win where upstream has only English, and
+    if upstream visa data looks incomplete the curated rules are kept.
+    """
+    target = out_dir / "places.json"
+    curated: dict[str, Any] = {}
+    if target.exists():
+        try:
+            curated = json.loads(target.read_text(encoding="utf-8"))
+        except ValueError:
+            curated = {}
+
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         cities = await fetch_cities(client)
         countries = await fetch_countries(client)
@@ -113,20 +134,37 @@ async def build_webapp_reference(out_dir: Path) -> dict[str, int]:
         except httpx.HTTPError as exc:
             log.warning("refdata.visa_failed", error=str(exc))
             visa = {}
+
+    real_hy = sum(1 for v in cities.values() if v["hy"] != v["en"])
+    if real_hy < MIN_HY_CITIES:
+        raise ReferenceError(f"only {real_hy} Armenian city names upstream; keeping the committed file")
+    if len(visa) < MIN_VISA_ROWS:
+        log.warning("refdata.visa_incomplete", rows=len(visa))
+        visa = dict(curated.get("visa") or {})
+
+    city_rows = {k: [v["hy"], v["en"], v["cc"], _r(v["lat"]), _r(v["lon"])] for k, v in cities.items()}
+    for code, row in (curated.get("cities") or {}).items():
+        if code not in city_rows:
+            city_rows[code] = row
+        elif city_rows[code][0] == city_rows[code][1] and row and row[0] != row[1]:
+            city_rows[code][0] = row[0]  # upstream lacks Armenian, the curated copy has it
+    country_rows = {k: [v["hy"], v["en"]] for k, v in countries.items()}
+    for code, row in (curated.get("countries") or {}).items():
+        if code not in country_rows or country_rows[code][0] == country_rows[code][1]:
+            country_rows[code] = row
+
     payload = {
         "v": 1,
         "generated_at": int(time.time()),
         # code: [hy, en, country, lat, lon]
-        "cities": {k: [v["hy"], v["en"], v["cc"], _r(v["lat"]), _r(v["lon"])] for k, v in sorted(cities.items())},
-        "countries": {k: [v["hy"], v["en"]] for k, v in sorted(countries.items())},
-        "airlines": dict(sorted(airlines.items())),
+        "cities": dict(sorted(city_rows.items())),
+        "countries": dict(sorted(country_rows.items())),
+        "airlines": dict(sorted({**(curated.get("airlines") or {}), **airlines}.items())),
         "visa": dict(sorted(visa.items())),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "places.json").write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
-    )
-    return {"cities": len(cities), "countries": len(countries), "airlines": len(airlines), "visa": len(visa)}
+    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return {"cities": len(city_rows), "hy_names": real_hy, "airlines": len(payload["airlines"]), "visa": len(visa)}
 
 
 def _r(v: Any) -> float | None:
@@ -141,19 +179,29 @@ class CityNames:
         self._names: dict[str, str] = {}
 
     async def load(self) -> None:
-        if self._path.exists() and time.time() - self._path.stat().st_mtime < CACHE_TTL_S:
-            self._names = json.loads(self._path.read_text(encoding="utf-8"))
-            return
+        try:
+            if self._path.exists() and time.time() - self._path.stat().st_mtime < CACHE_TTL_S:
+                self._names = json.loads(self._path.read_text(encoding="utf-8"))
+                return
+        except (OSError, ValueError):
+            pass
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 cities = await fetch_cities(client)
             self._names = {k: v["hy"] for k, v in cities.items()}
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(self._names, ensure_ascii=False), encoding="utf-8")
         except httpx.HTTPError as exc:
             log.warning("refdata.cities_unavailable", error=str(exc))
-            if self._path.exists():
-                self._names = json.loads(self._path.read_text(encoding="utf-8"))
+            try:
+                if self._path.exists():
+                    self._names = json.loads(self._path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            return
+        try:  # caching is best effort: a read-only disk must never stop alerts
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(self._names, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            log.warning("refdata.cache_write_failed", error=str(exc))
 
     def __call__(self, code: str) -> str:
         return self._names.get(code, code)

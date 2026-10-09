@@ -89,9 +89,9 @@ async def upsert_fares(db: Database, fares: Iterable[Fare], *, now: datetime | N
 
 
 async def start_run(db: Database, job: str, source: str) -> int:
-    await db.execute("INSERT INTO scrape_runs (job, source, started_at) VALUES (?, ?, ?)", (job, source, iso(utcnow())))
     rows = await db.query(
-        "SELECT id FROM scrape_runs WHERE job = ? AND source = ? ORDER BY id DESC LIMIT 1", (job, source)
+        "INSERT INTO scrape_runs (job, source, started_at) VALUES (?, ?, ?) RETURNING id",
+        (job, source, iso(utcnow())),
     )
     return int(rows[0]["id"])
 

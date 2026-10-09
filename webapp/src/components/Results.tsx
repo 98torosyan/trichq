@@ -31,7 +31,7 @@ export function applyView(items: SearchItem[], filter: FilterKey, sort: SortKey)
       case "u150":
         return effective(it) <= 150;
       case "georgia":
-        return it.alt !== null;
+        return it.alt !== null && (it.alt.origin === "TBS" || it.alt.origin === "KUT");
       default:
         return true;
     }
@@ -82,7 +82,8 @@ export function PassCard({ item, pax, rank, onOpen }: { item: SearchItem; pax: n
   const offer = item.best ?? item.alt;
   if (!offer) return null;
   const visa = visaFor(item.dest);
-  const price = Math.round(offer.price_usd * pax);
+  // Alternative-airport-only results show the full cost, ground transport included.
+  const price = Math.round((item.best ? offer.price_usd : item.alt!.effective_usd) * pax);
   const country = countryName(item.dest);
   const deal = item.deal_pct;
   return (
@@ -107,7 +108,7 @@ export function PassCard({ item, pax, rank, onOpen }: { item: SearchItem; pax: n
           <div style={{ minWidth: 0 }}>
             <div className="city">{cityName(item.dest)}</div>
             <div className="meta">
-              {[airlineName(offer.airline), item.best ? null : `${cityName(offer.origin)}-ից`].filter(Boolean).join(" · ")}
+              {[airlineName(offer.airline), item.best ? null : `${cityName(offer.origin)}ից, ճանապարհով միասին`].filter(Boolean).join(" · ")}
             </div>
           </div>
           <div className="price">

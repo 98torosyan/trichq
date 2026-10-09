@@ -46,11 +46,16 @@ export function initTelegram(): void {
 export function applyScheme(): void {
   const scheme = tg?.colorScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   document.documentElement.dataset.theme = scheme;
-  if (tg && tg.isVersionAtLeast("6.1")) {
+  // Hex header colours need Bot API 6.9+; older clients throw, and the app must still start.
+  if (tg && tg.isVersionAtLeast("6.9")) {
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || (scheme === "dark" ? "#0A111D" : "#E9EFF6");
-    tg.setHeaderColor(bg);
-    tg.setBackgroundColor(bg);
-    tg.setBottomBarColor?.(bg);
+    try {
+      tg.setHeaderColor(bg);
+      tg.setBackgroundColor(bg);
+      if (tg.isVersionAtLeast("7.10")) tg.setBottomBarColor?.(bg);
+    } catch {
+      /* cosmetic only */
+    }
   }
 }
 

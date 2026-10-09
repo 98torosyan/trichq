@@ -10,6 +10,26 @@ const MAX_NIGHTS = 30;
 const MAX_AHEAD_DAYS = 330;
 const CACHE_SECONDS = 600;
 const DB_FRESH_DAYS = 3;
+const MEMO_MAX = 50;
+
+/**
+ * Per-isolate memory cache. The Cache API has no effect on *.workers.dev, so this keeps repeated
+ * searches cheap there; on a custom domain the edge cache below also applies.
+ */
+const memo = new Map<string, { at: number; body: unknown }>();
+const memoGet = (k: string) => {
+  const hit = memo.get(k);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_SECONDS * 1000) {
+    memo.delete(k);
+    return null;
+  }
+  return hit.body;
+};
+const memoPut = (k: string, body: unknown) => {
+  if (memo.size >= MEMO_MAX) memo.delete(memo.keys().next().value as string);
+  memo.set(k, { at: Date.now(), body });
+};
 
 export const groundCosts = (env: Env): Record<string, number> => {
   try {
@@ -106,10 +126,13 @@ export const searchRoute = new Hono<AppEnv>().get("/", async (c) => {
   const cacheKey = new Request(
     `https://cache.trichq/search?o=${q.origin}&a=${q.alts.join(",")}&d=${q.dep}&r=${q.ret}&f=${q.flex}`,
   );
+  const memoHit = memoGet(cacheKey.url) as Record<string, unknown> | null;
+  if (memoHit) return c.json({ ...memoHit, meta: { ...(memoHit.meta as object), cached: true } });
   const cache = (caches as unknown as { default: Cache }).default;
   const hit = await cache.match(cacheKey);
   if (hit) {
     const body = (await hit.json()) as Record<string, unknown>;
+    memoPut(cacheKey.url, body);
     return c.json({ ...body, meta: { ...(body.meta as object), cached: true } });
   }
 
@@ -122,7 +145,8 @@ export const searchRoute = new Hono<AppEnv>().get("/", async (c) => {
   );
   const [live, fromDb, refs] = await Promise.all([
     Promise.allSettled(liveCalls),
-    q.flex > 0 || q.alts.length ? windowFromDb(env, q).catch(() => [] as Fare[]) : Promise.resolve([] as Fare[]),
+    // Always ask the DB too: it covers the ±flex window and keeps search working if the live API is down.
+    windowFromDb(env, q).catch(() => [] as Fare[]),
     referencePrices(env, q.origin, monthOf(q.dep)).catch(() => new Map<string, number>()),
   ]);
   const liveFares = live.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
@@ -140,6 +164,7 @@ export const searchRoute = new Hono<AppEnv>().get("/", async (c) => {
     results: items,
     meta: { fetched_at: new Date().toISOString(), live: liveFares.length, db: fromDb.length, errors, cached: false },
   };
+  memoPut(cacheKey.url, body);
   c.executionCtx.waitUntil(
     Promise.all([
       cache.put(cacheKey, new Response(JSON.stringify(body), { headers: { "Cache-Control": `max-age=${CACHE_SECONDS}` } })),

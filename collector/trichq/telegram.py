@@ -27,8 +27,16 @@ class Telegram:
 
     async def call(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         for attempt in range(4):
-            resp = await self._client.post(f"{self._base}/{method}", json=payload)
-            data = resp.json()
+            try:
+                resp = await self._client.post(f"{self._base}/{method}", json=payload)
+                data = resp.json()
+            except httpx.TransportError as exc:
+                if attempt < 3:
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+                raise TelegramError(f"{method}: network error {exc}") from exc
+            except ValueError as exc:  # HTML error page instead of JSON
+                raise TelegramError(f"{method}: bad response {resp.status_code}") from exc
             if data.get("ok"):
                 return data["result"]
             retry_after = (data.get("parameters") or {}).get("retry_after")

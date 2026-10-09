@@ -1,5 +1,5 @@
-import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { motion, useDragControls } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Offer, type RouteDetail, api } from "../lib/api";
 import { addDays, artGradient, duration, longDate, shortDate, stops } from "../lib/format";
 import { airlineName, cityName, countryName, visaFor } from "../lib/ref";
@@ -31,7 +31,11 @@ export function DetailSheet({ target, pax, watching, onClose, onWatch, onPickDat
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => onBackButton(onClose), [onClose]);
+  const dragControls = useDragControls();
+  // Keep the Telegram back button subscribed once, even though onClose changes on every parent render.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => onBackButton(() => closeRef.current()), []);
   useEffect(() => {
     let alive = true;
     setDetail(null);
@@ -85,13 +89,18 @@ export function DetailSheet({ target, pax, watching, onClose, onWatch, onPickDat
         exit={{ y: "100%" }}
         transition={{ type: "spring", damping: 30, stiffness: 300 }}
         drag="y"
+        dragListener={false}
+        dragControls={dragControls}
         dragConstraints={{ top: 0, bottom: 0 }}
         dragElastic={{ top: 0, bottom: 0.6 }}
         onDragEnd={(_, info) => {
           if (info.offset.y > 120 || info.velocity.y > 600) onClose();
         }}
       >
-        <div className="grab"><i /></div>
+        {/* Only the handle starts a drag, so the sheet itself scrolls normally on touch screens. */}
+        <div className="grab" onPointerDown={(e) => dragControls.start(e)} style={{ touchAction: "none", cursor: "grab" }}>
+          <i />
+        </div>
         <div className="sh-hero" style={{ background: artGradient(dest) }}>
           <div className="route">
             <span>{origin}</span>

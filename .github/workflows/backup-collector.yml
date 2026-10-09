@@ -25,6 +25,6 @@ jobs:
           TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+          WEBAPP_URL: ${{ vars.WEBAPP_URL }}
           MIGRATIONS_DIR: ${{ github.workspace }}/db/migrations
         run: python -m trichq nightly-if-stale --max-age-hours 20

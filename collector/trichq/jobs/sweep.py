@@ -70,7 +70,7 @@ async def sweep_origin(
                         )
                         break
                     collected.extend(f for f in fares if keep_fare(f, today, settings.max_trip_nights))
-                    if len(fares) < MAX_LIMIT:
+                    if getattr(tp, "last_page_size", len(fares)) < MAX_LIMIT:
                         break
     return collected
 

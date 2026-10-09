@@ -41,6 +41,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number>();
   const resultsRef = useRef<HTMLDivElement>(null);
+  const searchSeq = useRef(0);
 
   const say = useCallback((msg: string) => {
     setToast(msg);
@@ -55,18 +56,21 @@ export default function App() {
 
   const search = useCallback(
     async (p: SearchParams = params) => {
+      const seq = ++searchSeq.current; // a newer search makes this one's answer irrelevant
       setBusy(true);
       setError(null);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
       try {
         const res = await api.search(p);
+        if (seq !== searchSeq.current) return;
         setData(res);
         haptic.success();
       } catch (e) {
+        if (seq !== searchSeq.current) return;
         setError(e instanceof ApiError ? e.message : "Չհաջողվեց որոնել։ Փորձիր նորից։");
         haptic.error();
       } finally {
-        setBusy(false);
+        if (seq === searchSeq.current) setBusy(false);
       }
     },
     [params],
@@ -85,7 +89,7 @@ export default function App() {
     try {
       const dep = t.offer?.dep_date ?? t.dep;
       const ret = t.offer?.ret_date ?? t.ret;
-      await api.addWatch({ origin: t.origin, dest: t.dest, dep_date: dep, ret_date: ret, flex_days: params.flex ? 1 : 0, target_usd: target });
+      await api.addWatch({ origin: t.origin, dest: t.dest, dep_date: dep, ret_date: ret, flex_days: Math.min(3, params.flex), target_usd: target });
       haptic.success();
       say(`Կգրենք Telegram-ով, երբ ${cityName(t.dest)}-ն իջնի ${target}$-ից`);
       loadWatches();

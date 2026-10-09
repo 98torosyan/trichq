@@ -59,7 +59,11 @@ app.route("/api", dataRoutes);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
 // ---------------------------------------------------------------- the mini app itself
-app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
+// Re-wrap: asset responses have immutable headers, and secureHeaders must be able to add to them.
+app.all("*", async (c) => {
+  const res = await c.env.ASSETS.fetch(c.req.raw);
+  return new Response(res.body, res);
+});
 
 // ---------------------------------------------------------------- daily health check (cron)
 const SWEEP_MAX_AGE_H = 26;

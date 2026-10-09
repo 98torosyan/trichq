@@ -44,7 +44,14 @@ export function RouteMap({ origin, pins }: { origin: string; pins: Pin[] }) {
   const [tag, setTag] = useState<{ x: number; y: number; text: string } | null>(null);
 
   useEffect(() => {
-    if (!arcs.length || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const reset = () => {
+      planeRef.current?.setAttribute("opacity", "0");
+      setTag(null);
+    };
+    if (!arcs.length || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      reset();
+      return;
+    }
     let raf = 0;
     let idx = 0;
     let t0 = performance.now();
@@ -74,7 +81,10 @@ export function RouteMap({ origin, pins }: { origin: string; pins: Pin[] }) {
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      reset();
+    };
   }, [arcs]);
 
   const tagW = tag ? tag.text.length * 5.1 + 10 : 0;

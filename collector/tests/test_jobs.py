@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -287,6 +286,74 @@ async def test_turso_query_decodes_rows() -> None:
 def test_scheduler_picks_next_slot_in_yerevan() -> None:
     tz = ZoneInfo("Asia/Yerevan")
     now = datetime(2026, 10, 9, 23, 0, tzinfo=tz)
-    runs = next_runs(now, (Slot("nightly", time(0, 40), 0), Slot("watches", time(8, 10), 0)), random.Random(1))
-    when, slot = runs[0]
+    slots = (Slot("nightly", time(0, 40), 0), Slot("watches", time(8, 10), 0))
+    when, slot = next_runs(now, slots)[0]
     assert slot.name == "nightly" and when == datetime(2026, 10, 10, 0, 40, tzinfo=tz)
+
+
+def test_scheduler_never_fires_a_slot_twice_a_day() -> None:
+    tz = ZoneInfo("Asia/Yerevan")
+    slots = (Slot("nightly", time(0, 40), 5),)
+    first, _ = next_runs(datetime(2026, 10, 9, 23, 0, tzinfo=tz), slots)[0]
+    # right after it fired (job finished in seconds), the next run must be tomorrow's
+    after = first + timedelta(seconds=30)
+    again, _ = next_runs(after, slots, {first})[0]
+    assert again.date() == first.date() + timedelta(days=1)
+    assert next_runs(after, slots, {first}) == next_runs(after, slots, {first})  # jitter is stable
+
+
+# --------------------------------------------------------------------------- reference data
+
+
+def _mock_reference(hy_cities: list[dict], visa_rows: int) -> None:
+    from trichq.refdata import PASSPORT_CSV, TP_DATA
+
+    en = [
+        {"code": f"C{i:02d}", "name": f"City{i}", "country_code": "IT", "coordinates": {"lat": 1, "lon": 2}}
+        for i in range(30)
+    ] + [{"code": "AYT", "name": "Antalya", "country_code": "TR", "coordinates": {"lat": 36.9, "lon": 30.8}}]
+    respx.get(TP_DATA.format(lang="en", name="cities")).mock(return_value=httpx.Response(200, json=en))
+    respx.get(TP_DATA.format(lang="hy", name="cities")).mock(return_value=httpx.Response(200, json=hy_cities))
+    respx.get(TP_DATA.format(lang="en", name="countries")).mock(
+        return_value=httpx.Response(200, json=[{"code": "TR", "name": "Turkey"}])
+    )
+    respx.get(TP_DATA.format(lang="hy", name="countries")).mock(return_value=httpx.Response(200, json=[]))
+    respx.get(TP_DATA.format(lang="en", name="airlines")).mock(
+        return_value=httpx.Response(200, json=[{"code": "PC", "name": "Pegasus"}])
+    )
+    rows = "\n".join(f"AM,X{i},visa required" for i in range(visa_rows))
+    respx.get(PASSPORT_CSV).mock(return_value=httpx.Response(200, text=f"Passport,Destination,Requirement\n{rows}"))
+
+
+@respx.mock
+async def test_reference_refuses_to_lose_armenian_names(tmp_path) -> None:
+    import json
+
+    from trichq.refdata import ReferenceError, build_webapp_reference
+
+    (tmp_path / "places.json").write_text('{"cities":{"AYT":["Անթալիա","Antalya","TR",36.9,30.8]}}')
+    _mock_reference(hy_cities=[], visa_rows=150)
+    try:
+        await build_webapp_reference(tmp_path)
+    except ReferenceError:
+        pass
+    else:
+        raise AssertionError("expected ReferenceError")
+    assert json.loads((tmp_path / "places.json").read_text())["cities"]["AYT"][0] == "Անթալիա"
+
+
+@respx.mock
+async def test_reference_merges_curated_names_and_visa(tmp_path) -> None:
+    import json
+
+    from trichq.refdata import build_webapp_reference
+
+    (tmp_path / "places.json").write_text(
+        '{"cities":{"AYT":["Անթալիա","Antalya","TR",36.9,30.8]},"visa":{"TR":"visa on arrival"}}'
+    )
+    _mock_reference(hy_cities=[{"code": f"C{i:02d}", "name": f"Քաղաք{i}"} for i in range(30)], visa_rows=10)
+    counts = await build_webapp_reference(tmp_path)
+    data = json.loads((tmp_path / "places.json").read_text())
+    assert counts["hy_names"] == 30
+    assert data["cities"]["AYT"][0] == "Անթալիա"  # upstream had only English for AYT
+    assert data["visa"] == {"TR": "visa on arrival"}  # incomplete upstream visa data is ignored
