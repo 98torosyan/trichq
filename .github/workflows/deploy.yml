@@ -113,7 +113,8 @@ jobs:
           HOST_KEY: ${{ secrets.ORACLE_HOST_KEY }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/oracle
+          # Windows Notepad copies CRLF line endings; OpenSSH rejects them.
+          printf '%s\n' "$KEY" | tr -d '\r' > ~/.ssh/oracle
           chmod 600 ~/.ssh/oracle
           if [ -n "$HOST_KEY" ]; then
             printf '%s %s\n' "$HOST" "$HOST_KEY" >> ~/.ssh/known_hosts   # pinned: safest
