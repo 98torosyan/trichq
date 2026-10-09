@@ -1,0 +1,21 @@
+# Runs on the Oracle Cloud VM: /opt/trichq/docker-compose.yml (copied there by .github/workflows/deploy.yml)
+services:
+  collector:
+    build:
+      context: ./src
+      dockerfile: collector/Dockerfile
+    image: trichq-collector:latest
+    container_name: trichq-collector
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1g

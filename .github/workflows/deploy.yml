@@ -1,0 +1,125 @@
+name: Deploy
+
+# Runs after every push to main (and on demand). Needs these repository secrets:
+#   TELEGRAM_BOT_TOKEN, BOT_WEBHOOK_SECRET, ALLOWED_USER_IDS, ADMIN_CHAT_ID,
+#   TRAVELPAYOUTS_TOKEN, TRAVELPAYOUTS_MARKER (optional),
+#   TURSO_URL, TURSO_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
+#   ORACLE_HOST, ORACLE_SSH_KEY, and optionally WEBAPP_URL (defaults to the workers.dev address).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  app:
+    name: Database, mini app, API and bot
+    runs-on: ubuntu-24.04
+    outputs:
+      webapp_url: ${{ steps.url.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: collector/pyproject.toml }
+      - name: Install collector
+        run: pip install ./collector
+      - name: Apply database migrations
+        working-directory: collector
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          MIGRATIONS_DIR: ${{ github.workspace }}/db/migrations
+        run: python -m trichq migrate
+      - name: Refresh reference data (Armenian names, airlines, visa rules)
+        working-directory: collector
+        run: python -m trichq reference --out ../webapp/public/ref || echo "::warning::reference refresh failed, keeping the committed copy"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Build mini app
+        working-directory: webapp
+        run: npm ci && npm run build
+      - name: Deploy Worker (API, bot and static mini app)
+        id: deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm ci
+          npx wrangler deploy | tee deploy.log
+          echo "url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
+      - name: Resolve public URL
+        id: url
+        run: echo "url=${{ secrets.WEBAPP_URL != '' && secrets.WEBAPP_URL || steps.deploy.outputs.url }}" >> "$GITHUB_OUTPUT"
+      - name: Upload Worker secrets
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          S_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          S_BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
+          S_TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          S_TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          S_TURSO_URL: ${{ secrets.TURSO_URL }}
+          S_TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          S_ALLOWED_USER_IDS: ${{ secrets.ALLOWED_USER_IDS }}
+          S_ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          S_WEBAPP_URL: ${{ steps.url.outputs.url }}
+        run: |
+          umask 077
+          node -e '
+            const out = {};
+            for (const [k, v] of Object.entries(process.env)) if (k.startsWith("S_") && v) out[k.slice(2)] = v;
+            require("fs").writeFileSync("secrets.json", JSON.stringify(out));
+          '
+          npx wrangler secret bulk secrets.json
+          rm -f secrets.json
+      - name: Configure Telegram bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
+          WEBAPP_URL: ${{ steps.url.outputs.url }}
+        run: node scripts/setup-telegram.mjs
+
+  collector:
+    name: Collector on Oracle Cloud
+    runs-on: ubuntu-24.04
+    needs: app
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/oracle
+          chmod 600 ~/.ssh/oracle
+          ssh-keyscan -T 15 -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
+      - name: Copy code
+        env: { HOST: "${{ secrets.ORACLE_HOST }}" }
+        run: |
+          SSH="ssh -i ~/.ssh/oracle -o ServerAliveInterval=30"
+          scp -i ~/.ssh/oracle deploy/bootstrap-oracle.sh "ubuntu@$HOST:/tmp/bootstrap-oracle.sh"
+          $SSH "ubuntu@$HOST" 'bash /tmp/bootstrap-oracle.sh'
+          rsync -az --delete -e "$SSH" collector db "ubuntu@$HOST:/opt/trichq/src/"
+          scp -i ~/.ssh/oracle deploy/docker-compose.yml "ubuntu@$HOST:/opt/trichq/docker-compose.yml"
+      - name: Write .env and (re)start
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          ENV_FILE: |
+            TRAVELPAYOUTS_TOKEN=${{ secrets.TRAVELPAYOUTS_TOKEN }}
+            TRAVELPAYOUTS_MARKER=${{ secrets.TRAVELPAYOUTS_MARKER }}
+            TURSO_URL=${{ secrets.TURSO_URL }}
+            TURSO_TOKEN=${{ secrets.TURSO_TOKEN }}
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            ADMIN_CHAT_ID=${{ secrets.ADMIN_CHAT_ID }}
+            WEBAPP_URL=${{ needs.app.outputs.webapp_url }}
+            ORIGINS=EVN,LWN,TBS,KUT
+            TP_MARKETS=ru
+        run: |
+          printf '%s\n' "$ENV_FILE" | ssh -i ~/.ssh/oracle "ubuntu@$HOST" 'umask 077; cat > /opt/trichq/.env'
+          ssh -i ~/.ssh/oracle "ubuntu@$HOST" 'cd /opt/trichq && sudo docker compose up -d --build --remove-orphans && sudo docker image prune -f >/dev/null && sudo docker compose ps'

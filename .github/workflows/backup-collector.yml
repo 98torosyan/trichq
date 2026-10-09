@@ -1,0 +1,30 @@
+name: Backup collector
+
+# If the Oracle server misses a night (down, reclaimed, out of capacity), GitHub runs the
+# Aviasales sweep instead. It does nothing when last night's sweep already succeeded.
+on:
+  schedule:
+    - cron: "37 2 * * *" # 06:37 Yerevan, after the server's 00:40 run
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults: { run: { working-directory: collector } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: collector/pyproject.toml }
+      - run: pip install .
+      - name: Run nightly only if stale
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+          MIGRATIONS_DIR: ${{ github.workspace }}/db/migrations
+        run: python -m trichq nightly-if-stale --max-age-hours 20

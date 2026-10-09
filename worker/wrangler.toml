@@ -1,0 +1,24 @@
+name = "trichq"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The mini app (webapp/dist) is served by the same Worker, so the app and its API share one origin.
+[assets]
+directory = "../webapp/dist"
+binding = "ASSETS"
+
+# 07:00 Yerevan: alert the admin if last night's collection did not finish.
+[triggers]
+crons = ["0 3 * * *"]
+
+[vars]
+TP_MARKETS = "ru"
+ORIGINS = "EVN,LWN,TBS,KUT"
+# Round-trip ground cost per person (USD) to reach an alternative airport from Yerevan.
+GROUND_COST_USD = '{"LWN":15,"TBS":45,"KUT":75}'
+DEV_AUTH_BYPASS = "0"
+
+# Secrets (set with `wrangler secret put` or by the deploy workflow):
+#   TELEGRAM_BOT_TOKEN, BOT_WEBHOOK_SECRET, TRAVELPAYOUTS_TOKEN, TRAVELPAYOUTS_MARKER,
+#   TURSO_URL, TURSO_TOKEN, ALLOWED_USER_IDS, ADMIN_CHAT_ID, WEBAPP_URL

@@ -1,0 +1,2 @@
+[console_scripts]
+trichq = trichq.__main__:main
