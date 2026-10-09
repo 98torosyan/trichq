@@ -123,9 +123,16 @@ jobs:
       - name: Copy code
         env: { HOST: "${{ secrets.ORACLE_HOST }}" }
         run: |
+          # Diagnose the usual first-run problems and surface them as annotations (visible without logs).
+          ssh-keygen -y -f ~/.ssh/oracle >/dev/null 2>&1 \
+            || { echo "::error::ORACLE_SSH_KEY is not a valid private key (paste the whole .key file, not .pub)"; exit 1; }
+          grep -q "$HOST" ~/.ssh/known_hosts \
+            || { echo "::error::Cannot reach $HOST:22 (wrong ORACLE_HOST, instance stopped, or port 22 closed)"; exit 1; }
+          ssh -i ~/.ssh/oracle -o BatchMode=yes -o ConnectTimeout=20 "ubuntu@$HOST" true \
+            || { echo "::error::SSH login as ubuntu@$HOST refused: the key does not match this instance"; exit 1; }
           SSH="ssh -i ~/.ssh/oracle -o ServerAliveInterval=30"
           scp -i ~/.ssh/oracle deploy/bootstrap-oracle.sh "ubuntu@$HOST:/tmp/bootstrap-oracle.sh"
-          $SSH "ubuntu@$HOST" 'bash /tmp/bootstrap-oracle.sh'
+          $SSH "ubuntu@$HOST" 'bash /tmp/bootstrap-oracle.sh' || { echo "::error::bootstrap-oracle.sh failed on the VM"; exit 1; }
           rsync -az --delete -e "$SSH" collector db "ubuntu@$HOST:/opt/trichq/src/"
           scp -i ~/.ssh/oracle deploy/docker-compose.yml "ubuntu@$HOST:/opt/trichq/docker-compose.yml"
       - name: Write .env and (re)start
