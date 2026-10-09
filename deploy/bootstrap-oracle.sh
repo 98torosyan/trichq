@@ -18,6 +18,15 @@ if ! command -v docker >/dev/null 2>&1; then
   sudo usermod -aG docker "$USER"
 fi
 
+# Swap: lets the 1 GB E2.1.Micro shape build images and run the collector without OOM kills.
+if ! swapon --show | grep -q /swapfile; then
+  sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+
 sudo mkdir -p /opt/trichq/data /opt/trichq/src
 sudo chown -R "$USER":"$USER" /opt/trichq
 # The container runs as uid 10001 (see collector/Dockerfile) and must be able to write its cache.
