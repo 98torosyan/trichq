@@ -162,8 +162,7 @@ async def build_webapp_reference(out_dir: Path) -> dict[str, int]:
         "airlines": dict(sorted({**(curated.get("airlines") or {}), **airlines}.items())),
         "visa": dict(sorted(visa.items())),
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    _write_json(target, payload)
     return {"cities": len(city_rows), "hy_names": real_hy, "airlines": len(payload["airlines"]), "visa": len(visa)}
 
 
@@ -205,3 +204,9 @@ class CityNames:
 
     def __call__(self, code: str) -> str:
         return self._names.get(code, code)
+
+
+def _write_json(target: Path, payload: dict) -> None:
+    """Small one-off write; kept sync and out of the async path on purpose."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

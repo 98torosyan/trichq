@@ -109,7 +109,7 @@ async def best_price(db: Database, tp: TravelpayoutsClient, settings: Settings, 
     # 2) Anything fresh in our own DB (e.g. found by a search in the mini app an hour ago).
     since = repo.iso(repo.utcnow() - timedelta(hours=FRESH_DB_HOURS))
     rows = await db.query(
-        "SELECT * FROM fares_current WHERE origin = ? AND dest = ? AND dep_date BETWEEN ? AND ?" " AND updated_at >= ?",
+        "SELECT * FROM fares_current WHERE origin = ? AND dest = ? AND dep_date BETWEEN ? AND ? AND updated_at >= ?",
         (w["origin"], w["dest"], dep_lo, dep_hi, since),
     )
     candidates += [

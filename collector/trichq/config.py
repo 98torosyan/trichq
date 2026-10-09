@@ -15,7 +15,9 @@ CsvList = Annotated[list[str], NoDecode]  # "EVN,LWN" in the environment, not JS
 class Settings(BaseSettings):
     """All runtime configuration comes from environment variables (or a local .env file)."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", str_strip_whitespace=True)
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", str_strip_whitespace=True
+    )
 
     # Travelpayouts / Aviasales Data API
     travelpayouts_token: str = Field(default="", alias="TRAVELPAYOUTS_TOKEN")
