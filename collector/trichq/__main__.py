@@ -94,12 +94,32 @@ async def notify_admin(c: Ctx, job: str, exc: BaseException) -> None:
         log.exception("admin.notify_failed")
 
 
+async def nightly_if_stale(c: Ctx, max_age_hours: float) -> None:
+    """Run the nightly chain unless a sweep succeeded recently (backup runs and fresh servers)."""
+    last = await repo.last_ok_run(c.db, "sweep")
+    age_h = (
+        (repo.utcnow() - datetime.fromisoformat(last["started_at"].replace("Z", "+00:00"))).total_seconds() / 3600
+        if last
+        else None
+    )
+    if age_h is not None and age_h < max_age_hours:
+        log.info("backup.skip", last_sweep_hours_ago=round(age_h, 1))
+        return
+    log.warning("backup.running", last_sweep_hours_ago=age_h)
+    await cmd_nightly(c)
+
+
 async def cmd_scheduler(c: Ctx) -> None:
     jobs: dict[str, Callable[[], Awaitable[object]]] = {
         "nightly": lambda: cmd_nightly(c),
         "watches": lambda: cmd_watches(c),
     }
     await migrate_mod.run(c.db)
+    # A new or long-stopped server fills the database now instead of waiting for 00:40.
+    try:
+        await nightly_if_stale(c, 26.0)
+    except Exception as exc:
+        await notify_admin(c, "startup-catchup", exc)
     await run_forever(jobs, c.settings.tz, lambda job, exc: notify_admin(c, job, exc))
 
 
@@ -142,18 +162,7 @@ async def main_async(argv: list[str]) -> int:
                 await notify_admin(c, "nightly", exc)
                 raise
         elif args.cmd == "nightly-if-stale":
-            last = await repo.last_ok_run(c.db, "sweep")
-            age_h = (
-                (repo.utcnow() - datetime.fromisoformat(last["started_at"].replace("Z", "+00:00"))).total_seconds()
-                / 3600
-                if last
-                else None
-            )
-            if age_h is not None and age_h < args.max_age_hours:
-                log.info("backup.skip", last_sweep_hours_ago=round(age_h, 1))
-            else:
-                log.warning("backup.running", last_sweep_hours_ago=age_h)
-                await cmd_nightly(c)
+            await nightly_if_stale(c, args.max_age_hours)
         elif args.cmd == "scheduler":
             await cmd_scheduler(c)
     return 0
