@@ -113,7 +113,7 @@ class GoogleFlights:
             log.warning("google.serpapi_failed", route=f"{origin}-{dest}", error=str(exc)[:200])
             return None
         options = (body.get("best_flights") or []) + (body.get("other_flights") or [])
-        priced = [o for o in options if isinstance(o.get("price"), (int, float))]
+        priced = [o for o in options if isinstance(o.get("price"), int | float)]
         if not priced:
             return None
         best = min(priced, key=lambda o: o["price"])
