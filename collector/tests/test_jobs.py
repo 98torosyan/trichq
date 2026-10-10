@@ -369,3 +369,22 @@ async def test_reference_merges_curated_names_and_visa(tmp_path) -> None:
     assert counts["hy_names"] == 30
     assert data["cities"]["AYT"][0] == "Անթալիա"  # upstream had only English for AYT
     assert data["visa"] == {"TR": "visa on arrival"}  # incomplete upstream visa data is ignored
+
+
+async def test_verify_stores_google_prices_for_cheapest_routes(db, settings) -> None:
+    from trichq.jobs import verify
+    from trichq.sources.google import _fare
+
+    await repo.upsert_fares(db, [make_fare(dest="DXB", dep_date=FAR, ret_date=FAR_RET, price_usd=312)])
+
+    class FakeGoogle:
+        ok = failed = 0
+
+        async def round_trip(self, origin, dest, dep, ret):
+            self.ok += 1
+            return _fare(origin, dest, dep, ret, 182, "flydubai", 0, "https://g/x", "google")
+
+    written = await verify.run(db, settings, FakeGoogle())  # type: ignore[arg-type]
+    assert written == 1
+    rows = await db.query("SELECT price_usd FROM fares_current WHERE source = 'google'")
+    assert rows and float(rows[0]["price_usd"]) == 182

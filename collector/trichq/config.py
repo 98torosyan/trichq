@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Per-destination sweeps: the "anywhere" query only returns the cheapest routes, so smaller ones go missing.
     sweep_per_dest: bool = Field(default=True, alias="SWEEP_PER_DEST")
     sweep_concurrency: int = Field(default=8, ge=1, le=16, alias="SWEEP_CONCURRENCY")
+    # Google Flights re-pricing of the cheapest routes (second, independent source).
+    google_routes_per_run: int = Field(default=40, ge=0, le=200, alias="GOOGLE_ROUTES_PER_RUN")
+    serpapi_key: str = Field(default="", alias="SERPAPI_KEY")
+    serpapi_per_run: int = Field(default=8, ge=0, le=50, alias="SERPAPI_PER_RUN")
 
     # Database: Turso in production, a local SQLite file for development and tests
     turso_url: str = Field(default="", alias="TURSO_URL")

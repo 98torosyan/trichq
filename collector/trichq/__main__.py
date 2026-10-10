@@ -28,7 +28,7 @@ from trichq import migrate as migrate_mod
 from trichq import repo
 from trichq.config import Settings, get_settings
 from trichq.db import Database, open_db
-from trichq.jobs import deals, stats, sweep, watches
+from trichq.jobs import deals, stats, sweep, verify, watches
 from trichq.logs import setup_logging
 from trichq.refdata import CityNames, build_webapp_reference
 from trichq.scheduler import run_forever
@@ -72,6 +72,11 @@ async def cmd_nightly(c: Ctx) -> None:
     assert c.tp is not None
     await sweep.run(c.db, c.settings, c.tp)
     await stats.run(c.db, c.settings)
+    if c.settings.google_routes_per_run:
+        try:  # a second source must never break the nightly chain
+            await verify.run(c.db, c.settings)
+        except Exception as exc:
+            log.warning("verify.failed", error=str(exc)[:300])
     await deals.run(c.db, c.settings, c.tp)
     await c.city.load()
     await watches.run(c.db, c.settings, c.tp, c.tg, c.city)
@@ -126,7 +131,7 @@ async def cmd_scheduler(c: Ctx) -> None:
 async def main_async(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="trichq")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("migrate", "sweep", "stats", "deals", "watches", "nightly", "scheduler"):
+    for name in ("migrate", "sweep", "stats", "deals", "watches", "nightly", "scheduler", "verify"):
         sub.add_parser(name)
     backup = sub.add_parser("nightly-if-stale", help="run the nightly chain only if the server missed it")
     backup.add_argument("--max-age-hours", type=float, default=20.0)
@@ -149,6 +154,8 @@ async def main_async(argv: list[str]) -> int:
         elif args.cmd == "sweep":
             assert c.tp is not None
             await sweep.run(c.db, c.settings, c.tp)
+        elif args.cmd == "verify":
+            await verify.run(c.db, c.settings)
         elif args.cmd == "stats":
             await stats.run(c.db, c.settings)
         elif args.cmd == "deals":

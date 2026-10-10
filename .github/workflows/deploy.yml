@@ -29,6 +29,19 @@ jobs:
         with: { python-version: "3.12", cache: pip, cache-dependency-path: collector/pyproject.toml }
       - name: Install collector
         run: pip install ./collector
+      - name: Google Flights smoke test (non-blocking)
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          from datetime import date, timedelta
+          from trichq.sources.google import _fast_flights_sync
+          d = date.today() + timedelta(days=30)
+          try:
+              f = _fast_flights_sync("EVN", "DXB", d.isoformat(), (d + timedelta(days=6)).isoformat())
+              print(f"::notice::Google Flights OK: EVN-DXB {d} {f.price_usd if f else 'no result'} USD {f.airline if f else ''}")
+          except Exception as e:
+              print(f"::warning::Google Flights failed: {type(e).__name__}: {str(e)[:200]}")
+          PY
       - name: Apply database migrations
         working-directory: collector
         env:
@@ -150,6 +163,7 @@ jobs:
             WEBAPP_URL=${{ needs.app.outputs.webapp_url }}
             ORIGINS=EVN,LWN,TBS,KUT
             TP_MARKETS=ru,am
+            SERPAPI_KEY=${{ secrets.SERPAPI_KEY }}
         run: |
           HOST="$ORACLE_IP"
           printf '%s\n' "$ENV_FILE" | sed -E 's/=[[:space:]]+/=/; s/[[:space:]]+$//' \
