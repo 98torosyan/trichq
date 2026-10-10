@@ -149,7 +149,7 @@ jobs:
             ADMIN_CHAT_ID=${{ secrets.ADMIN_CHAT_ID }}
             WEBAPP_URL=${{ needs.app.outputs.webapp_url }}
             ORIGINS=EVN,LWN,TBS,KUT
-            TP_MARKETS=ru
+            TP_MARKETS=ru,am
         run: |
           HOST="$ORACLE_IP"
           printf '%s\n' "$ENV_FILE" | sed -E 's/=[[:space:]]+/=/; s/[[:space:]]+$//' \
