@@ -33,6 +33,7 @@ def test_month_helpers() -> None:
 
 async def test_sweep_writes_fares_and_records_run(db, settings) -> None:
     tp = FakeTP([make_fare(dep_date=FAR, ret_date=FAR_RET), make_fare(dest="DXB", dep_date=FAR, ret_date=FAR_RET)])
+    settings.sweep_per_dest = False
     result = await sweep.run(db, settings, tp)  # type: ignore[arg-type]
     assert result.fares == 2
     # 2 months x 2 return months x 1 market, one page each (fewer than 1000 results)
@@ -40,6 +41,17 @@ async def test_sweep_writes_fares_and_records_run(db, settings) -> None:
     assert all(c["one_way"] is False for c in tp.calls)
     run = await repo.last_ok_run(db, "sweep")
     assert run is not None and run["rows_seen"] == 2 and run["status"] == "ok"
+
+
+async def test_sweep_per_destination_adds_one_way_legs_for_home_only(db, settings) -> None:
+    tp = FakeTP([make_fare(dep_date=FAR, ret_date=FAR_RET)])
+    await sweep.run(db, settings, tp)  # type: ignore[arg-type]
+    per_dest = [c for c in tp.calls if c.get("destination")]
+    assert any(c["destination"] == "WAW" for c in per_dest)  # core list covers routes the "anywhere" query misses
+    one_way = [c for c in per_dest if c["one_way"]]
+    home = settings.origins[0]
+    assert one_way and all(home in (c["origin"], c["destination"]) for c in one_way)
+    assert any(c["origin"] == "WAW" and c["destination"] == home for c in one_way)  # the way back
 
 
 async def test_sweep_drops_past_and_overlong_trips(db, settings) -> None:

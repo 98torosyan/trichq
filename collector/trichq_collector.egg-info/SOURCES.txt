@@ -1,4 +1,6 @@
 pyproject.toml
+tests/test_db_and_models.py
+tests/test_jobs.py
 trichq/__init__.py
 trichq/__main__.py
 trichq/config.py
