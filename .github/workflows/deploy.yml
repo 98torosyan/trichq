@@ -155,3 +155,6 @@ jobs:
           printf '%s\n' "$ENV_FILE" | sed -E 's/=[[:space:]]+/=/; s/[[:space:]]+$//' \
             | ssh -i ~/.ssh/oracle "ubuntu@$HOST" 'umask 077; cat > /opt/trichq/.env'
           ssh -i ~/.ssh/oracle "ubuntu@$HOST" 'cd /opt/trichq && sudo docker compose up -d --build --remove-orphans && sudo docker image prune -f >/dev/null && sudo docker compose ps'
+      - name: Run a sweep now (commit message contains [sweep])
+        if: contains(github.event.head_commit.message, '[sweep]')
+        run: ssh -i ~/.ssh/oracle "ubuntu@$ORACLE_IP" 'cd /opt/trichq && sudo docker compose exec -d collector python -m trichq nightly'

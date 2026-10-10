@@ -64,6 +64,7 @@ async function windowFromDb(env: Env, q: SearchQuery): Promise<Fare[]> {
   const origins = [q.origin, ...q.alts];
   const db = getDb(env);
   const placeholders = origins.map(() => "?").join(",");
+  const freshSince = new Date(Date.now() - DB_FRESH_DAYS * 86_400_000).toISOString().replace(/\.\d{3}Z$/, "Z");
   const rs = await db.execute({
     sql: `SELECT origin, dest, dep_date, ret_date, MIN(price_usd) AS price_usd, airline, flight_number, transfers,
                  return_transfers, duration_min, link, source, market
@@ -77,10 +78,31 @@ async function windowFromDb(env: Env, q: SearchQuery): Promise<Fare[]> {
       addDays(q.dep, q.flex),
       addDays(q.ret, -q.flex),
       addDays(q.ret, q.flex),
-      new Date(Date.now() - DB_FRESH_DAYS * 86_400_000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+      freshSince,
     ],
   });
-  return rs.rows.map((r) => ({
+  // Pair one-way tickets (out from home, back to home) into round trips the API never quoted as one ticket.
+  const legs = await db.execute({
+    sql: `SELECT o.origin AS origin, o.dest AS dest, o.dep_date AS dep_date, b.dep_date AS ret_date,
+                 MIN(o.price_usd + b.price_usd) AS price_usd, o.airline AS airline, o.flight_number AS flight_number,
+                 o.transfers AS transfers, b.transfers AS return_transfers, o.duration_min AS duration_min,
+                 o.link AS link, 'combo' AS source, o.market AS market
+          FROM fares_current o
+          JOIN fares_current b ON b.origin = o.dest AND b.dest = o.origin AND b.ret_date IS NULL
+          WHERE o.origin = ? AND o.ret_date IS NULL AND o.dep_date BETWEEN ? AND ?
+            AND b.dep_date BETWEEN ? AND ? AND o.updated_at >= ? AND b.updated_at >= ?
+          GROUP BY o.dest`,
+    args: [
+      q.origin,
+      addDays(q.dep, -q.flex),
+      addDays(q.dep, q.flex),
+      addDays(q.ret, -q.flex),
+      addDays(q.ret, q.flex),
+      freshSince,
+      freshSince,
+    ],
+  });
+  return [...rs.rows, ...legs.rows].map((r) => ({
     origin: String(r.origin),
     dest: String(r.dest),
     dep_date: String(r.dep_date),

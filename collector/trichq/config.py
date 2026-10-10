@@ -23,13 +23,16 @@ class Settings(BaseSettings):
     travelpayouts_token: str = Field(default="", alias="TRAVELPAYOUTS_TOKEN")
     travelpayouts_marker: str = Field(default="", alias="TRAVELPAYOUTS_MARKER")
     tp_markets: CsvList = Field(default=["ru"], alias="TP_MARKETS")
-    tp_requests_per_second: float = Field(default=4.0, alias="TP_RPS")
+    tp_requests_per_second: float = Field(default=8.0, alias="TP_RPS")  # API allows 10/s
 
     # What we scan
     origins: CsvList = Field(default=["EVN", "LWN", "TBS", "KUT"], alias="ORIGINS")
     sweep_months: int = Field(default=6, ge=1, le=12, alias="SWEEP_MONTHS")
     sweep_max_pages: int = Field(default=3, ge=1, le=10, alias="SWEEP_MAX_PAGES")
     max_trip_nights: int = Field(default=30, alias="MAX_TRIP_NIGHTS")
+    # Per-destination sweeps: the "anywhere" query only returns the cheapest routes, so smaller ones go missing.
+    sweep_per_dest: bool = Field(default=True, alias="SWEEP_PER_DEST")
+    sweep_concurrency: int = Field(default=8, ge=1, le=16, alias="SWEEP_CONCURRENCY")
 
     # Database: Turso in production, a local SQLite file for development and tests
     turso_url: str = Field(default="", alias="TURSO_URL")
